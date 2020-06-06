@@ -352,7 +352,7 @@ static void nl_rt_callback(int sock)
     return;
 }
 
-int prefix_length(int family, void *nm)
+static int prefix_length(int family, void *nm)
 {
     int prefix = 0;
 
@@ -375,7 +375,7 @@ int prefix_length(int family, void *nm)
 
 /* Utility function  comes from iproute2.
    Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru> */
-int addattr(struct nlmsghdr *n, int type, void *data, int alen)
+static int addattr(struct nlmsghdr *n, int type, void *data, int alen)
 {
     struct rtattr *attr;
     int len = RTA_LENGTH(alen);
@@ -391,7 +391,7 @@ int addattr(struct nlmsghdr *n, int type, void *data, int alen)
 
 #define ATTR_BUFLEN 512
 
-int nl_send(struct nlsock *nl, struct nlmsghdr *n)
+static int nl_send(struct nlsock *nl, struct nlmsghdr *n)
 {
     int res;
     struct iovec iov = {(void *)n, n->nlmsg_len};
@@ -419,7 +419,7 @@ int nl_send(struct nlsock *nl, struct nlmsghdr *n)
 
 /* Function to add, remove and update entries in the kernel routing
  * table */
-int nl_kern_route(int action, int flags, int family, int index,
+static int nl_kern_route(int action, int flags, int family, int index,
                   struct in_addr *dst, struct in_addr *gw, struct in_addr *nm,
                   int metric)
 {
