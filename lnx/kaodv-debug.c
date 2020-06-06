@@ -20,7 +20,7 @@
  *
  *****************************************************************************/
 #include <asm/io.h>
-#include <asm/uaccess.h>
+//#include <asm/uaccess.h> // needed for non Debian based Linux distributions
 
 #include "kaodv-debug.h"
 #include "kaodv-netlink.h"

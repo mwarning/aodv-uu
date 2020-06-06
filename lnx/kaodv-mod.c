@@ -124,11 +124,13 @@ void kaodv_update_route_timeouts(int hooknum, const struct net_device *dev,
     }
 }
 
-static unsigned int kaodv_hook(unsigned int hooknum, struct sk_buff *skb,
-                               const struct net_device *in,
-                               const struct net_device *out,
-                               int (*okfn)(struct sk_buff *))
+static unsigned int kaodv_hook(void *priv, struct sk_buff *skb,
+                               const struct nf_hook_state *state)
 {
+    unsigned int hooknum = state->hook;
+    const struct net_device *in = state->in;
+    const struct net_device *out = state->out;
+    int (*okfn)(struct net *, struct sock *, struct sk_buff *) = state->okfn;
     struct iphdr *iph = SKB_NETWORK_HDR_IPH(skb);
     struct expl_entry e;
     struct in_addr ifaddr, bcaddr;
@@ -240,7 +242,7 @@ static unsigned int kaodv_hook(unsigned int hooknum, struct sk_buff *skb,
             if (!skb)
                 return NF_STOLEN;
 
-            ip_route_me_harder(skb, RTN_LOCAL);
+            ip_route_me_harder(&init_net, skb, RTN_LOCAL);
         }
         break;
     case NF_INET_POST_ROUTING:
@@ -249,6 +251,7 @@ static unsigned int kaodv_hook(unsigned int hooknum, struct sk_buff *skb,
     return NF_ACCEPT;
 }
 
+/*
 int kaodv_proc_info(char *buffer, char **start, off_t offset, int length)
 {
     int len;
@@ -266,14 +269,15 @@ int kaodv_proc_info(char *buffer, char **start, off_t offset, int length)
         len = 0;
     return len;
 }
+*/
 
 /*
  * Called when the module is inserted in the kernel.
  */
 static char *ifname[MAX_INTERFACES] = {"eth0"};
 
-#ifdef KERNEL26
 static int num_parms = 0;
+#ifdef KERNEL26
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 10))
 module_param_array(ifname, charp, num_parms, 0444);
 #else
@@ -281,8 +285,8 @@ module_param_array(ifname, charp, &num_parms, 0444);
 #endif
 module_param(qual_th, int, 0);
 #else
-MODULE_PARM(ifname, "1-" __MODULE_STRING(MAX_INTERFACES) "s");
-MODULE_PARM(qual_th, "i");
+module_param_array(ifname, charp, &num_parms, 0444);
+module_param(qual_th, int, 0);
 #endif
 
 static struct nf_hook_ops kaodv_ops[] = {
@@ -315,33 +319,25 @@ static struct nf_hook_ops kaodv_ops[] = {
     },
 };
 
-static int kaodv_read_proc(char *page, char **start, off_t off, int count,
-                           int *eof, void *data)
+static ssize_t kaodv_read_proc(struct file *p_file, char *p_buf, size_t p_count,
+                               loff_t *p_offset)
 {
     int len;
 
     len = sprintf(
-        page,
+        p_buf,
         "qual threshold=%d\npkts dropped=%lu\nlast qual=%d\ngateway_mode=%d\n",
         qual_th, pkts_dropped, qual, is_gateway);
 
-    *start = page + off;
-    len -= off;
-    if (len > count)
-        len = count;
-    else if (len < 0)
-        len = 0;
     return len;
 }
+
+static const struct file_operations kaodv_proc_fops = {read : kaodv_read_proc};
 
 static int __init kaodv_init(void)
 {
     struct net_device *dev = NULL;
     int i, ret = -ENOMEM;
-
-#ifndef KERNEL26
-    EXPORT_NO_SYMBOLS;
-#endif
 
     kaodv_expl_init();
 
@@ -355,17 +351,17 @@ static int __init kaodv_init(void)
     if (ret < 0)
         goto cleanup_queue;
 
-    ret = nf_register_hook(&kaodv_ops[0]);
+    ret = nf_register_net_hook(&init_net, &kaodv_ops[0]);
 
     if (ret < 0)
         goto cleanup_netlink;
 
-    ret = nf_register_hook(&kaodv_ops[1]);
+    ret = nf_register_net_hook(&init_net, &kaodv_ops[1]);
 
     if (ret < 0)
         goto cleanup_hook0;
 
-    ret = nf_register_hook(&kaodv_ops[2]);
+    ret = nf_register_net_hook(&init_net, &kaodv_ops[2]);
 
     if (ret < 0)
         goto cleanup_hook1;
@@ -389,18 +385,18 @@ static int __init kaodv_init(void)
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
     proc_net_create("kaodv", 0, kaodv_proc_info);
 #else
-    if (!create_proc_read_entry("kaodv", 0, init_net.proc_net, kaodv_read_proc,
-                                NULL))
+    if (!proc_create("kaodv", 0, init_net.proc_net, &kaodv_proc_fops))
         KAODV_DEBUG("Could not create kaodv proc entry");
 #endif
+
     KAODV_DEBUG("Module init OK");
 
     return ret;
 
 cleanup_hook1:
-    nf_unregister_hook(&kaodv_ops[1]);
+    nf_unregister_net_hook(&init_net, &kaodv_ops[1]);
 cleanup_hook0:
-    nf_unregister_hook(&kaodv_ops[0]);
+    nf_unregister_net_hook(&init_net, &kaodv_ops[0]);
 cleanup_netlink:
     kaodv_netlink_fini();
 cleanup_queue:
@@ -419,11 +415,12 @@ static void __exit kaodv_exit(void)
     if_info_purge();
 
     for (i = 0; i < sizeof(kaodv_ops) / sizeof(struct nf_hook_ops); i++)
-        nf_unregister_hook(&kaodv_ops[i]);
+        nf_unregister_net_hook(&init_net, &kaodv_ops[i]);
+
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
     proc_net_remove("kaodv");
 #else
-    proc_net_remove(&init_net, "kaodv");
+    remove_proc_entry("kaodv", init_net.proc_net);
 #endif
     kaodv_queue_fini();
     kaodv_expl_fini();

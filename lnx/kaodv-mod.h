@@ -17,7 +17,7 @@ struct if_info {
 };
 
 static LIST_HEAD(ifihead);
-static rwlock_t ifilock = RW_LOCK_UNLOCKED;
+static rwlock_t ifilock = __RW_LOCK_UNLOCKED();
 /* extern struct list_head ifihead; */
 /* extern rwlock_t ifilock; */
 

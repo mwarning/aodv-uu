@@ -25,13 +25,11 @@
 #endif
 #include <linux/if.h>
 #include <linux/netlink.h>
+#include <linux/security.h>
 #include <linux/skbuff.h>
 #include <linux/spinlock.h>
 #include <linux/version.h>
 
-#ifdef KERNEL26
-#include <linux/security.h>
-#endif
 #include <net/sock.h>
 
 #include "kaodv-debug.h"
@@ -42,13 +40,8 @@
 
 static int peer_pid;
 static struct sock *kaodvnl;
-static DECLARE_MUTEX(kaodvnl_sem);
 
-/* For 2.4 backwards compatibility */
-#ifndef KERNEL26
-#define sk_receive_queue receive_queue
-#define sk_socket socket
-#endif
+static DEFINE_SEMAPHORE(kaodvnl_sem);
 
 extern int active_route_timeout, qual_th, is_gateway;
 
@@ -68,14 +61,14 @@ static struct sk_buff *kaodv_netlink_build_msg(int type, void *data, int len)
         goto nlmsg_failure;
 
     old_tail = SKB_TAIL_PTR(skb);
-    nlh = NLMSG_PUT(skb, 0, 0, type, size - sizeof(*nlh));
+    nlh = nlmsg_put(skb, 0, 0, type, size - sizeof(*nlh), 0);
 
     m = NLMSG_DATA(nlh);
 
     memcpy(m, data, len);
 
     nlh->nlmsg_len = SKB_TAIL_PTR(skb) - old_tail;
-    NETLINK_CB(skb).pid = 0; /* from kernel */
+    NETLINK_CB(skb).portid = 0; /* from kernel */
 
     return skb;
 
@@ -235,8 +228,8 @@ static int kaodv_netlink_rcv_nl_event(struct notifier_block *this,
 {
     struct netlink_notify *n = ptr;
 
-    if (event == NETLINK_URELEASE && n->protocol == NETLINK_AODV && n->pid) {
-        if (n->pid == peer_pid) {
+    if (event == NETLINK_URELEASE && n->protocol == NETLINK_AODV && n->portid) {
+        if (n->portid == peer_pid) {
             peer_pid = 0;
             kaodv_expl_flush();
             kaodv_queue_flush();
@@ -252,7 +245,7 @@ static struct notifier_block kaodv_nl_notifier = {
 
 #define RCV_SKB_FAIL(err)                                                      \
     do {                                                                       \
-        netlink_ack(skb, nlh, (err));                                          \
+        netlink_ack(skb, nlh, (err), NULL);                                    \
         return;                                                                \
     } while (0)
 
@@ -294,7 +287,7 @@ static inline void kaodv_netlink_rcv_skb(struct sk_buff *skb)
     if (security_netlink_recv(skb))
         RCV_SKB_FAIL(-EPERM);
 #else
-    if (security_netlink_recv(skb, CAP_NET_ADMIN))
+    if (!capable(CAP_NET_ADMIN))
         RCV_SKB_FAIL(-EPERM);
 #endif
 #endif
@@ -316,7 +309,7 @@ static inline void kaodv_netlink_rcv_skb(struct sk_buff *skb)
         RCV_SKB_FAIL(status);
 
     if (flags & NLM_F_ACK)
-        netlink_ack(skb, nlh, 0);
+        netlink_ack(skb, nlh, 0, NULL);
     return;
 }
 
@@ -342,6 +335,12 @@ static void kaodv_netlink_rcv_sk(struct sock *sk, int len)
 }
 #endif
 
+static struct netlink_kernel_cfg kaodvnlcfg = {
+    groups : AODVGRP_MAX,
+    input : kaodv_netlink_rcv_skb,
+    cb_mutex : NULL,
+};
+
 int kaodv_netlink_init(void)
 {
     netlink_register_notifier(&kaodv_nl_notifier);
@@ -354,8 +353,7 @@ int kaodv_netlink_init(void)
     kaodvnl = netlink_kernel_create(NETLINK_AODV, AODVGRP_MAX,
                                     kaodv_netlink_rcv_sk, NULL, THIS_MODULE);
 #else
-    kaodvnl = netlink_kernel_create(&init_net, NETLINK_AODV, AODVGRP_MAX,
-                                    kaodv_netlink_rcv_skb, NULL, THIS_MODULE);
+    kaodvnl = netlink_kernel_create(&init_net, NETLINK_AODV, &kaodvnlcfg);
 #endif
     if (kaodvnl == NULL) {
         printk(KERN_ERR "kaodv_netlink: failed to create netlink socket\n");

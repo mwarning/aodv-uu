@@ -57,14 +57,14 @@ struct kaodv_rt_info {
 struct kaodv_queue_entry {
     struct list_head list;
     struct sk_buff *skb;
-    int (*okfn)(struct sk_buff *);
+    int (*okfn)(struct net *, struct sock *, struct sk_buff *);
     struct kaodv_rt_info rt_info;
 };
 
 typedef int (*kaodv_queue_cmpfn)(struct kaodv_queue_entry *, unsigned long);
 
 static unsigned int queue_maxlen = KAODV_QUEUE_QMAX_DEFAULT;
-static rwlock_t queue_lock = RW_LOCK_UNLOCKED;
+static rwlock_t queue_lock = __RW_LOCK_UNLOCKED();
 static unsigned int queue_total;
 static LIST_HEAD(queue_list);
 
@@ -147,7 +147,8 @@ void kaodv_queue_flush(void)
 }
 
 int kaodv_queue_enqueue_packet(struct sk_buff *skb,
-                               int (*okfn)(struct sk_buff *))
+                               int (*okfn)(struct net *, struct sock *,
+                                           struct sk_buff *))
 {
     int status = -EINVAL;
     struct kaodv_queue_entry *entry;
@@ -249,12 +250,12 @@ int kaodv_queue_set_verdict(int verdict, __u32 daddr)
 #elif (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
             ip_route_me_harder(&entry->skb, RTN_LOCAL);
 #else
-            ip_route_me_harder(entry->skb, RTN_LOCAL);
+            ip_route_me_harder(&init_net, entry->skb, RTN_LOCAL);
 #endif
             pkts++;
 
             /* Inject packet */
-            entry->okfn(entry->skb);
+            entry->okfn(NULL, NULL, entry->skb);
         next:
             kfree(entry);
         }
@@ -286,29 +287,27 @@ static int kaodv_queue_get_info(char *buffer, char **start, off_t offset,
     return len;
 }
 #else
-static int kaodv_queue_get_info(char *page, char **start, off_t off, int count,
-                                int *eof, void *data)
+static ssize_t kaodv_queue_get_info(struct file *p_file, char *p_buf,
+                                    size_t p_count, loff_t *p_offset)
 {
     int len;
 
     read_lock_bh(&queue_lock);
 
-    len = sprintf(page,
+    len = sprintf(p_buf,
                   "Queue length      : %u\n"
                   "Queue max. length : %u\n",
                   queue_total, queue_maxlen);
 
     read_unlock_bh(&queue_lock);
 
-    *start = page + off;
-    len -= off;
-    if (len > count)
-        len = count;
-    else if (len < 0)
-        len = 0;
     return len;
 }
 #endif
+
+static const struct file_operations kaodv_proc_fops = {
+    read : kaodv_queue_get_info
+};
 
 static int init_or_cleanup(int init)
 {
@@ -323,9 +322,8 @@ static int init_or_cleanup(int init)
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
     proc = proc_net_create(KAODV_QUEUE_PROC_FS_NAME, 0, kaodv_queue_get_info);
 #else
-    proc =
-        create_proc_read_entry(KAODV_QUEUE_PROC_FS_NAME, 0, init_net.proc_net,
-                               kaodv_queue_get_info, NULL);
+    proc = proc_create(KAODV_QUEUE_PROC_FS_NAME, 0, init_net.proc_net,
+                       &kaodv_proc_fops);
 #endif
     if (!proc) {
         printk(KERN_ERR "kaodv_queue: failed to create proc entry\n");
@@ -339,15 +337,13 @@ static int init_or_cleanup(int init)
     return 1;
 
 cleanup:
-#ifdef KERNEL26
     synchronize_net();
-#endif
     kaodv_queue_flush();
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
     proc_net_remove(KAODV_QUEUE_PROC_FS_NAME);
 #else
-    proc_net_remove(&init_net, KAODV_QUEUE_PROC_FS_NAME);
+    remove_proc_entry(KAODV_QUEUE_PROC_FS_NAME, init_net.proc_net);
 #endif
     return status;
 }

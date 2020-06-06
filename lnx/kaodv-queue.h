@@ -27,7 +27,8 @@
 
 int kaodv_queue_find(__u32 daddr);
 int kaodv_queue_enqueue_packet(struct sk_buff *skb,
-                               int (*okfn)(struct sk_buff *));
+                               int (*okfn)(struct net *, struct sock *,
+                                           struct sk_buff *));
 int kaodv_queue_set_verdict(int verdict, __u32 daddr);
 void kaodv_queue_flush(void);
 int kaodv_queue_init(void);
