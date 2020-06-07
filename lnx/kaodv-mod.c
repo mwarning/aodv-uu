@@ -20,12 +20,6 @@
  *
  *****************************************************************************/
 #include <linux/version.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19))
-#include <linux/config.h>
-#endif
-#ifdef KERNEL26
-#include <linux/moduleparam.h>
-#endif
 #include <linux/if.h>
 #include <linux/in.h>
 #include <linux/inetdevice.h>
@@ -51,14 +45,6 @@
 #include "kaodv-queue.h"
 #include "kaodv.h"
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 25))
-#define NF_INET_PRE_ROUTING NF_IP_PRE_ROUTING
-#define NF_INET_LOCAL_IN NF_IP_LOCAL_IN
-#define NF_INET_FORWARD NF_IP_FORWARD
-#define NF_INET_LOCAL_OUT NF_IP_LOCAL_OUT
-#define NF_INET_POST_ROUTING NF_IP_POST_ROUTING
-#define NF_INET_NUMHOOKS NF_IP_NUMHOOKS
-#endif
 
 #define ACTIVE_ROUTE_TIMEOUT active_route_timeout
 #define MAX_INTERFACES 10
@@ -154,11 +140,7 @@ static unsigned int kaodv_hook(void *priv, struct sk_buff *skb,
             ntohs(udph->source) == AODV_PORT) {
 
 #ifdef CONFIG_QUAL_THRESHOLD
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
-            qual = (int)(skb)->__unused;
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0))
             qual = (skb)->iwq.qual;
-#endif
             if (qual_th && hooknum == NF_INET_PRE_ROUTING) {
 
                 if (qual && qual < qual_th) {
@@ -277,42 +259,24 @@ int kaodv_proc_info(char *buffer, char **start, off_t offset, int length)
 static char *ifname[MAX_INTERFACES] = {"eth0"};
 
 static int num_parms = 0;
-#ifdef KERNEL26
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 10))
-module_param_array(ifname, charp, num_parms, 0444);
-#else
-module_param_array(ifname, charp, &num_parms, 0444);
-#endif
-module_param(qual_th, int, 0);
-#else
 module_param_array(ifname, charp, &num_parms, 0444);
 module_param(qual_th, int, 0);
-#endif
 
 static struct nf_hook_ops kaodv_ops[] = {
     {
         .hook = kaodv_hook,
-#ifdef KERNEL26
-        .owner = THIS_MODULE,
-#endif
         .pf = PF_INET,
         .hooknum = NF_INET_PRE_ROUTING,
         .priority = NF_IP_PRI_FIRST,
     },
     {
         .hook = kaodv_hook,
-#ifdef KERNEL26
-        .owner = THIS_MODULE,
-#endif
         .pf = PF_INET,
         .hooknum = NF_INET_LOCAL_OUT,
         .priority = NF_IP_PRI_FILTER,
     },
     {
         .hook = kaodv_hook,
-#ifdef KERNEL26
-        .owner = THIS_MODULE,
-#endif
         .pf = PF_INET,
         .hooknum = NF_INET_POST_ROUTING,
         .priority = NF_IP_PRI_FILTER,
@@ -382,12 +346,8 @@ static int __init kaodv_init(void)
         dev_put(dev);
     }
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
-    proc_net_create("kaodv", 0, kaodv_proc_info);
-#else
     if (!proc_create("kaodv", 0, init_net.proc_net, &kaodv_proc_fops))
         KAODV_DEBUG("Could not create kaodv proc entry");
-#endif
 
     KAODV_DEBUG("Module init OK");
 
@@ -417,11 +377,8 @@ static void __exit kaodv_exit(void)
     for (i = 0; i < sizeof(kaodv_ops) / sizeof(struct nf_hook_ops); i++)
         nf_unregister_net_hook(&init_net, &kaodv_ops[i]);
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
-    proc_net_remove("kaodv");
-#else
     remove_proc_entry("kaodv", init_net.proc_net);
-#endif
+
     kaodv_queue_fini();
     kaodv_expl_fini();
     kaodv_netlink_fini();

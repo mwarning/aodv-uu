@@ -289,11 +289,7 @@ static int kaodv_expl_print(char *buf)
         int num_flags = 0;
         struct expl_entry *e = (struct expl_entry *)pos;
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
-        dev = dev_get_by_index(e->ifindex);
-#else
         dev = dev_get_by_index(&init_net, e->ifindex);
-#endif
 
         if (!dev)
             continue;
@@ -321,23 +317,7 @@ static int kaodv_expl_print(char *buf)
     read_unlock_bh(&expl_lock);
     return len;
 }
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
-static int kaodv_expl_proc_info(char *buffer, char **start, off_t offset,
-                                int length)
-{
-    int len;
 
-    len = kaodv_expl_print(buffer);
-
-    *start = buffer + offset;
-    len -= offset;
-    if (len > length)
-        len = length;
-    else if (len < 0)
-        len = 0;
-    return len;
-}
-#else
 static ssize_t kaodv_expl_proc_info(struct file *p_file, char *p_buf,
                                     size_t p_count, loff_t *p_offset)
 {
@@ -347,7 +327,6 @@ static ssize_t kaodv_expl_proc_info(struct file *p_file, char *p_buf,
 
     return len;
 }
-#endif
 
 int kaodv_expl_update(__u32 daddr, __u32 nhop, unsigned long time,
                       unsigned short flags, int ifindex)
@@ -404,13 +383,7 @@ static const struct file_operations kaodv_proc_fops = {
 
 void kaodv_expl_init(void)
 {
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
-    proc_net_create("kaodv_expl", 0, kaodv_expl_proc_info);
-#else
-    // create_proc_read_entry("kaodv_expl", 0, init_net.proc_net,
-    //                       kaodv_expl_proc_info, NULL);
     proc_create("kaodv_expl", 0, init_net.proc_net, &kaodv_proc_fops);
-#endif
 
     expl_len = 0;
 #ifdef EXPL_TIMER
@@ -421,10 +394,6 @@ void kaodv_expl_init(void)
 void kaodv_expl_fini(void)
 {
     kaodv_expl_flush();
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
-    proc_net_remove("kaodv_expl");
-#else
-    // proc_net_remove(&init_net, "kaodv_expl");
+
     remove_proc_entry("kaodv_expl", init_net.proc_net);
-#endif
 }

@@ -20,9 +20,6 @@
  *
  *****************************************************************************/
 #include <linux/version.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19))
-#include <linux/config.h>
-#endif
 #include <linux/if.h>
 #include <linux/netlink.h>
 #include <linux/security.h>
@@ -282,15 +279,7 @@ static inline void kaodv_netlink_rcv_skb(struct sk_buff *skb)
     /* 	printk("kaodv_netlink: type=%d\n", type); */
     /* if (type < NLMSG_NOOP || type >= IPQM_MAX) */
 /* 		RCV_SKB_FAIL(-EINVAL); */
-#ifdef KERNEL26
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18))
-    if (security_netlink_recv(skb))
-        RCV_SKB_FAIL(-EPERM);
-#else
-    if (!capable(CAP_NET_ADMIN))
-        RCV_SKB_FAIL(-EPERM);
-#endif
-#endif
+
     // write_lock_bh(&queue_lock);
 
     if (peer_pid) {
@@ -344,17 +333,9 @@ static struct netlink_kernel_cfg kaodvnlcfg = {
 int kaodv_netlink_init(void)
 {
     netlink_register_notifier(&kaodv_nl_notifier);
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 14))
-    kaodvnl = netlink_kernel_create(NETLINK_AODV, kaodv_netlink_rcv_sk);
-#elif (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22))
-    kaodvnl = netlink_kernel_create(NETLINK_AODV, AODVGRP_MAX,
-                                    kaodv_netlink_rcv_sk, THIS_MODULE);
-#elif (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
-    kaodvnl = netlink_kernel_create(NETLINK_AODV, AODVGRP_MAX,
-                                    kaodv_netlink_rcv_sk, NULL, THIS_MODULE);
-#else
+
     kaodvnl = netlink_kernel_create(&init_net, NETLINK_AODV, &kaodvnlcfg);
-#endif
+
     if (kaodvnl == NULL) {
         printk(KERN_ERR "kaodv_netlink: failed to create netlink socket\n");
         netlink_unregister_notifier(&kaodv_nl_notifier);
